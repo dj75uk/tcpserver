@@ -2,26 +2,27 @@ package kvstore
 
 import (
 	"errors"
-	"fmt"
 )
 
-const KvCommandUpsert string = "UPSERT"
-const KvCommandGet string = "GET"
-const KvCommandDelete string = "DELETE"
+const kvCommandUpsert string = "UPSERT"
+const kvCommandGet string = "GET"
+const kvCommandDelete string = "DELETE"
 
 type KvStore struct {
 	items    map[string]string
-	requests chan KvStoreRequest
+	requests chan kvStoreRequest
 }
 
-type KvStoreRequest struct {
+var ErrKeyNotFound error = errors.New("key not found")
+
+type kvStoreRequest struct {
 	Command string
 	Key     string
 	Value   string
-	Results chan KvStoreResponse
+	Results chan kvStoreResponse
 }
 
-type KvStoreResponse struct {
+type kvStoreResponse struct {
 	Value string
 	Error error
 }
@@ -36,7 +37,7 @@ func NewKvStore() *KvStore {
 func (store *KvStore) Open() {
 	if store.items == nil {
 		store.items = make(map[string]string)
-		store.requests = make(chan KvStoreRequest)
+		store.requests = make(chan kvStoreRequest)
 		go handleRequests(store)
 	}
 }
@@ -49,44 +50,44 @@ func (store *KvStore) Close() {
 	}
 }
 
-func (store *KvStore) Query(request KvStoreRequest) {
+func (store *KvStore) query(request kvStoreRequest) {
 	store.requests <- request
 }
 
 func (store *KvStore) Get(key string) (string, error) {
-	request := KvStoreRequest{
-		Command: KvCommandGet,
+	request := kvStoreRequest{
+		Command: kvCommandGet,
 		Key:     key,
 		Value:   "",
-		Results: make(chan KvStoreResponse),
+		Results: make(chan kvStoreResponse),
 	}
-	store.Query(request)
+	store.query(request)
 	response := <-request.Results
 	close(request.Results)
 	return response.Value, response.Error
 }
 
 func (store *KvStore) Upsert(key string, value string) (string, error) {
-	request := KvStoreRequest{
-		Command: KvCommandUpsert,
+	request := kvStoreRequest{
+		Command: kvCommandUpsert,
 		Key:     key,
 		Value:   value,
-		Results: make(chan KvStoreResponse),
+		Results: make(chan kvStoreResponse),
 	}
-	store.Query(request)
+	store.query(request)
 	response := <-request.Results
 	close(request.Results)
 	return response.Value, response.Error
 }
 
 func (store *KvStore) Delete(key string) (string, error) {
-	request := KvStoreRequest{
-		Command: KvCommandDelete,
+	request := kvStoreRequest{
+		Command: kvCommandDelete,
 		Key:     key,
 		Value:   "",
-		Results: make(chan KvStoreResponse),
+		Results: make(chan kvStoreResponse),
 	}
-	store.Query(request)
+	store.query(request)
 	response := <-request.Results
 	close(request.Results)
 	return response.Value, response.Error
@@ -98,15 +99,12 @@ func handleRequests(store *KvStore) {
 		if !isOpen {
 			return
 		}
-
-		fmt.Printf("store:  REQ: {%s '%s' '%v'}\n", request.Command, request.Key, request.Value)
-
-		response := KvStoreResponse{
+		response := kvStoreResponse{
 			Value: "",
 			Error: nil,
 		}
 		switch request.Command {
-		case KvCommandUpsert:
+		case kvCommandUpsert:
 			previous, exists := store.items[request.Key]
 			if !exists {
 				store.items[request.Key] = request.Value
@@ -115,17 +113,16 @@ func handleRequests(store *KvStore) {
 					store.items[request.Key] = request.Value
 				}
 			}
-		case KvCommandGet:
+		case kvCommandGet:
 			value, exists := store.items[request.Key]
 			if !exists {
-				response.Error = errors.New("key not found")
+				response.Error = ErrKeyNotFound
 			} else {
 				response.Value = value
 			}
-		case KvCommandDelete:
+		case kvCommandDelete:
 			delete(store.items, request.Key)
 		}
-		fmt.Printf("store:  RES: {'%s' '%v'}\n", response.Value, response.Error)
 		request.Results <- response
 	}
 }

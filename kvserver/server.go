@@ -64,19 +64,13 @@ func (kvs *KvServer) handleAcceptance(listener net.Listener) {
 	}
 }
 
-func writeErr(connection net.Conn) (n int, err error) {
-	return connection.Write([]byte("err"))
-}
-
 func (kvs *KvServer) handleConnection(connection net.Conn) {
-
-	fmt.Printf("server: handling connection from %v\n", connection.RemoteAddr())
-
 	defer func() { _ = connection.Close() }()
-	parser := parsing.NewParser()
-	accumulator := make([]byte, 0, KvServerReadBufferSize*8)
+
+	parser := parsing.NewParser2()
+
+	buffer := make([]byte, KvServerReadBufferSize)
 	for {
-		buffer := make([]byte, KvServerReadBufferSize)
 		count, err := connection.Read(buffer)
 		if err != nil {
 			return
@@ -84,77 +78,46 @@ func (kvs *KvServer) handleConnection(connection net.Conn) {
 		if count == 0 {
 			continue
 		}
-
-		fmt.Printf("received...\n")
-		fmt.Printf("- count:  %d\n", count)
-		fmt.Printf("- err:    %v\n", err)
-		fmt.Printf("- buffer: [%s]\n", string(buffer))
-		fmt.Printf("\n")
-
-		fmt.Printf("appending accumulator...\n")
-		fmt.Printf("- previous: %s\n", string(accumulator))
-		fmt.Printf("- count:    %d\n", count)
-		accumulator = append(accumulator, buffer[0:count]...)
-		fmt.Printf("- current:  %s\n", string(accumulator))
-		fmt.Printf("\n")
-
-		if len(accumulator) < 3 {
-			continue
-		}
-
-		fmt.Printf("checking command...\n")
-		cmd := string(accumulator[0:3])
-		expectedParameters, exists := kvs.verbsAndParameterCounts[cmd]
-		fmt.Printf("- cmd:                %s\n", cmd)
-		fmt.Printf("- expectedParameters: %d\n", expectedParameters)
-		fmt.Printf("- exists:             %v\n", exists)
-		fmt.Printf("\n")
-
-		if !exists {
-			fmt.Printf("server: cmd: %s unknown!\n", cmd)
-			fmt.Printf("decapitating accumulator...\n")
-			accumulator = accumulator[3:] // get rid of the crap
-			_, err := writeErr(connection)
-			if err != nil {
-				return
-			}
-			continue
-		}
-
-		fmt.Printf("parsing...\n")
-		fmt.Printf("- accumulator:        %s\n", string(accumulator[0:30]))
-		fmt.Printf("- len(accumulator):   %d\n", len(accumulator))
-		fmt.Printf("- expectedParameters: %d\n", expectedParameters)
-		message, chop, err := parser.Parse(accumulator, expectedParameters)
-		fmt.Printf("- msg                 %v\n", message)
-		fmt.Printf("- chop:               %d\n", chop)
-		fmt.Printf("- err:                %v\n", err)
-		fmt.Printf("\n")
-
-		if chop > 0 {
-			// remove the processed bytes from the accumulator...
-			fmt.Printf("decapitating accumulator...\n")
-			fmt.Printf("- previous: %s\n", string(accumulator))
-			fmt.Printf("- chop:     %d\n", chop)
-			accumulator = accumulator[chop:]
-			fmt.Printf("- current:  %s\n", string(accumulator))
-			fmt.Printf("\n")
-		}
-		if err != nil {
-			// send "err" to client
-			fmt.Printf("server: sending err (parser err == %s)\n", err.Error())
-			_, err := writeErr(connection)
-			if err != nil {
-				return
-			}
-			continue
-		}
-		if message != nil {
-			if !kvs.handleMessage(connection, message) {
-				return
-			}
+		cont, err := kvs.handleReceivedBytes(connection, parser, buffer[:count])
+		if !cont || err != nil {
+			return
 		}
 	}
+
+}
+
+func (kvs *KvServer) handleReceivedBytes(connection net.Conn, parser *parsing.Parser2, values []byte) (carryOn bool, e error) {
+	for _, value := range values {
+		cont, err := kvs.handleReceivedByte(connection, parser, value)
+		if !cont || err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func (kvs *KvServer) handleReceivedByte(connection net.Conn, parser *parsing.Parser2, value byte) (carryOn bool, e error) {
+	found, err := parser.Process(string(value))
+	if err != nil {
+		_, err := writeErr(connection)
+		if err != nil {
+			return false, err
+		}
+	}
+	if found {
+		cmd, arg1, arg2, err := parser.GetMessage()
+		if err != nil {
+			panic("something really vile has happened")
+		}
+		if !kvs.handleMessage(connection, &parsing.Msg{Command: cmd, Key: arg1, Value: arg2}) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func writeErr(connection net.Conn) (n int, err error) {
+	return connection.Write([]byte("err"))
 }
 
 func (kvs *KvServer) handleMessage(connection net.Conn, message *parsing.Msg) (carryOn bool) {
