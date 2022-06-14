@@ -11,25 +11,30 @@ import (
 const KvServerReadBufferSize int = 256
 
 type KvServer struct {
-	port                    int
-	store                   kvstore.KvStore
-	verbsAndParameterCounts map[string]uint16
+	port    int
+	store   kvstore.KvStore
+	grammar map[string]uint16
+}
+
+type commandMessage struct {
+	Command string
+	Key     string
+	Value   string
 }
 
 func NewKvServer(port int, store *kvstore.KvStore) (*KvServer, error) {
 	if store == nil {
 		return nil, errors.New("parameter 'store' must not be nil")
 	}
-	verbs := map[string]uint16{
-		"put": 2,
-		"get": 1,
-		"del": 1,
-		"bye": 0,
-	}
 	return &KvServer{
-		port:                    port,
-		store:                   *store,
-		verbsAndParameterCounts: verbs,
+		port:  port,
+		store: *store,
+		grammar: map[string]uint16{
+			"bye": 0,
+			"get": 1,
+			"del": 1,
+			"put": 2,
+		},
 	}, nil
 }
 
@@ -67,7 +72,7 @@ func (kvs *KvServer) handleAcceptance(listener net.Listener) {
 func (kvs *KvServer) handleConnection(connection net.Conn) {
 	defer func() { _ = connection.Close() }()
 
-	parser := parsing.NewParser2()
+	parser, _ := parsing.NewParser(kvs.grammar)
 
 	buffer := make([]byte, KvServerReadBufferSize)
 	for {
@@ -83,10 +88,9 @@ func (kvs *KvServer) handleConnection(connection net.Conn) {
 			return
 		}
 	}
-
 }
 
-func (kvs *KvServer) handleReceivedBytes(connection net.Conn, parser *parsing.Parser2, values []byte) (carryOn bool, e error) {
+func (kvs *KvServer) handleReceivedBytes(connection net.Conn, parser *parsing.Parser, values []byte) (carryOn bool, e error) {
 	for _, value := range values {
 		cont, err := kvs.handleReceivedByte(connection, parser, value)
 		if !cont || err != nil {
@@ -96,7 +100,7 @@ func (kvs *KvServer) handleReceivedBytes(connection net.Conn, parser *parsing.Pa
 	return true, nil
 }
 
-func (kvs *KvServer) handleReceivedByte(connection net.Conn, parser *parsing.Parser2, value byte) (carryOn bool, e error) {
+func (kvs *KvServer) handleReceivedByte(connection net.Conn, parser *parsing.Parser, value byte) (carryOn bool, e error) {
 	found, err := parser.Process(string(value))
 	if err != nil {
 		_, err := writeErr(connection)
@@ -109,7 +113,7 @@ func (kvs *KvServer) handleReceivedByte(connection net.Conn, parser *parsing.Par
 		if err != nil {
 			panic("something really vile has happened")
 		}
-		if !kvs.handleMessage(connection, &parsing.Msg{Command: cmd, Key: arg1, Value: arg2}) {
+		if !kvs.handleMessage(connection, &commandMessage{Command: cmd, Key: arg1, Value: arg2}) {
 			return false, nil
 		}
 	}
@@ -120,7 +124,7 @@ func writeErr(connection net.Conn) (n int, err error) {
 	return connection.Write([]byte("err"))
 }
 
-func (kvs *KvServer) handleMessage(connection net.Conn, message *parsing.Msg) (carryOn bool) {
+func (kvs *KvServer) handleMessage(connection net.Conn, message *commandMessage) (carryOn bool) {
 	if message == nil {
 		return false
 	}
@@ -139,7 +143,7 @@ func (kvs *KvServer) handleMessage(connection net.Conn, message *parsing.Msg) (c
 		if result, err := kvs.store.Get(message.Key); err != nil {
 			responseToWrite = "nil"
 		} else {
-			if bytesToWrite, err := parsing.NewParser().CreateData("val", result, ""); err == nil {
+			if bytesToWrite, err := parsing.CreateData("val", result, ""); err == nil {
 				responseToWrite = string(bytesToWrite)
 			}
 		}

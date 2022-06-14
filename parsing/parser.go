@@ -6,20 +6,46 @@ import (
 	"strconv"
 )
 
-type Msg struct {
-	Command string
-	Key     string
-	Value   string
-}
+const stateBuildingCommand int = 0
+const stateBuildingArg1LengthLength int = 1
+const stateBuildingArg1Length int = 2
+const stateBuildingArg1 int = 3
+const stateBuildingArg2LengthLength int = 4
+const stateBuildingArg2Length int = 5
+const stateBuildingArg2 int = 6
+const stateWaitingForMessageDequeue int = 7
+const stateReset int = stateBuildingCommand
+
+var ErrParserInvalidArgument = errors.New("invalid argument")
+var ErrParserUnknownCommand = errors.New("unknown command")
+var ErrParserBadFormat = errors.New("bad format")
+var ErrParserNoMessage = errors.New("no message")
 
 type Parser struct {
+	state             int
+	command           string
+	argsExpected      uint16
+	arg1LengthLength  int
+	arg1LengthBuilder string
+	arg1Length        int
+	arg1              string
+	arg2LengthLength  int
+	arg2LengthBuilder string
+	arg2Length        int
+	arg2              string
+	commands          map[string]uint16
 }
 
-func NewParser() *Parser {
-	return &Parser{}
+func NewParser(grammar map[string]uint16) (*Parser, error) {
+	if grammar == nil {
+		return nil, ErrParserInvalidArgument
+	}
+	result := &Parser{commands: grammar}
+	result.reset()
+	return result, nil
 }
 
-func (parser *Parser) CreateData(command string, key string, value string) ([]byte, error) {
+func CreateData(command string, key string, value string) ([]byte, error) {
 	if len(command) != 3 {
 		return nil, errors.New("invalid argument: 'command' must have length of 3")
 	}
@@ -38,102 +64,104 @@ func (parser *Parser) CreateData(command string, key string, value string) ([]by
 	return []byte(result), nil
 }
 
-func (parser *Parser) Parse(data []byte, expectedParameters uint16) (message *Msg, bytesProcessed int, err error) {
-	length := len(data)
-	if length < 3 {
-		return nil, 0, nil
+func (p *Parser) reset() {
+	p.state = stateReset
+	p.command = ""
+	p.argsExpected = 0
+	p.arg1LengthLength = 0
+	p.arg1LengthBuilder = ""
+	p.arg1Length = 0
+	p.arg1 = ""
+	p.arg2LengthLength = 0
+	p.arg2LengthBuilder = ""
+	p.arg2Length = 0
+	p.arg2 = ""
+}
+
+func (p *Parser) GetMessage() (command string, arg1 string, arg2 string, err error) {
+	if p.state == stateWaitingForMessageDequeue {
+		defer p.reset()
+		return p.command, p.arg1, p.arg2, nil
 	}
-	command := string(data[0:3])
+	return "", "", "", ErrParserNoMessage
+}
 
-	if expectedParameters == 0 {
-		return &Msg{
-			Command: command,
-			Key:     "",
-			Value:   "",
-		}, 3, nil
-	}
-
-	stage := 0
-	kss := 0
-	ksBuffer := ""
-	keyLength := 0
-	key := ""
-	vss := 0
-	vsBuffer := ""
-	valueLength := 0
-	value := ""
-
-	done := false
-	processed := 3
-	for index := 3; index < length; index++ {
-
-		if done {
-			break
+func (p *Parser) Process(datum string) (found bool, e error) {
+	switch p.state {
+	case stateBuildingCommand: // we're still waiting for a command...
+		p.command += datum
+		if len(p.command) == 3 {
+			// validate command...
+			if argsExpected, exists := p.commands[p.command]; exists {
+				if argsExpected == 0 {
+					p.state = stateWaitingForMessageDequeue
+					return true, nil // we have a valid zero-arg message
+				}
+				p.argsExpected = argsExpected
+				p.state++
+			} else {
+				p.reset()
+				return false, ErrParserUnknownCommand
+			}
 		}
-		datum := string(data[index])
-		processed++
-
-		switch stage {
-		case 0: // read kss
-			kss, err = strconv.Atoi(datum)
-			if err != nil || kss == 0 {
-				return nil, processed, errors.New("bad format")
-			}
-			stage++
-		case 1: // read ks based upon value of kss
-			ksBuffer += datum
-			if len(ksBuffer) == kss {
-				keyLength, err = strconv.Atoi(ksBuffer)
-				if err != nil || keyLength <= 0 {
-					return nil, processed, errors.New("bad format")
-				}
-				stage++
-			}
-		case 2: // read k based upon value of ks
-			key += datum
-			if len(key) == keyLength {
-				// got the key
-				stage++
-				if expectedParameters == 1 {
-					done = true
-				}
-			}
-		case 3: // read vss
-			vss, err = strconv.Atoi(datum)
-			if err != nil || vss == 0 {
-				return nil, processed, errors.New("bad format")
-			}
-			stage++
-		case 4: // read vs based upon value of vss
-			vsBuffer += datum
-			if len(vsBuffer) == vss {
-				valueLength, err = strconv.Atoi(vsBuffer)
-				if err != nil || valueLength <= 0 {
-					return nil, processed, errors.New("bad format")
-				}
-				stage++
-			}
-		case 5: // read v based upon value of vs
-			value += datum
-			if len(value) == valueLength {
-				// got the key
-				done = true
-			}
-		default:
-			done = true
+	case stateBuildingArg1LengthLength: // we're waiting for the length of the arg1 length...
+		if v, err := strconv.Atoi(datum); err == nil && v > 0 {
+			p.arg1LengthLength = v
+			p.state++
+		} else {
+			p.reset()
+			return false, ErrParserBadFormat
 		}
-
+	case stateBuildingArg1Length: // we're waiting for the bytes of arg1 length...
+		p.arg1LengthBuilder += datum
+		if len(p.arg1LengthBuilder) == p.arg1LengthLength {
+			if v, err := strconv.Atoi(p.arg1LengthBuilder); err == nil && v > 0 {
+				p.arg1Length = v
+				p.state++
+			} else {
+				p.reset()
+				return false, ErrParserBadFormat
+			}
+		}
+	case stateBuildingArg1: // we're waiting for the bytes of arg1...
+		p.arg1 += datum
+		if len(p.arg1) == p.arg1Length {
+			if p.argsExpected == 1 {
+				p.state = stateWaitingForMessageDequeue
+				return true, nil // we have a valid one-arg message
+			}
+			p.state++
+		}
+	case stateBuildingArg2LengthLength: // we're waiting for the length of the arg2 length...
+		if v, err := strconv.Atoi(datum); err == nil && v > 0 {
+			p.arg2LengthLength = v
+			p.state++
+		} else {
+			p.reset()
+			return false, ErrParserBadFormat
+		}
+	case stateBuildingArg2Length: // we're waiting for the bytes of arg2 length...
+		p.arg2LengthBuilder += datum
+		if len(p.arg2LengthBuilder) == p.arg2LengthLength {
+			if v, err := strconv.Atoi(p.arg2LengthBuilder); err == nil && v > 0 {
+				p.arg2Length = v
+				p.state++
+			} else {
+				p.reset()
+				return false, ErrParserBadFormat
+			}
+		}
+	case stateBuildingArg2: // we're waiting for the bytes of arg2...
+		p.arg2 += datum
+		if len(p.arg2) == p.arg2Length {
+			p.state++
+			if p.argsExpected == 2 {
+				p.state = stateWaitingForMessageDequeue
+				return true, nil // we have a valid two-arg message
+			}
+		}
+	case stateWaitingForMessageDequeue: // we're waiting for GetMessage() to be called...
+		// nop
 	}
-
-	// return a completed message...
-	if done {
-		return &Msg{
-			Command: command,
-			Key:     key,
-			Value:   value,
-		}, processed, nil
-	}
-
-	// indicate that we need more data...
-	return nil, 0, nil
+	return false, nil // we need more data
 }
