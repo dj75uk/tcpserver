@@ -28,6 +28,13 @@ func assertGrammar(t *testing.T, testObject *Parser, testGrammar map[string]Pars
 			if exists && actualValue.ExpectedArguments != expectedValue.ExpectedArguments {
 				t.Errorf("param: commands[%s].ExpectedArguments, expected: %d, actual: %d", expectedKey, expectedValue.ExpectedArguments, actualValue.ExpectedArguments)
 			}
+
+			if exists && actualValue.Arg1LengthIsValue != expectedValue.Arg1LengthIsValue {
+				t.Errorf("param: commands[%s].Arg1LengthIsValue, expected: %v, actual: %v", expectedKey, expectedValue.Arg1LengthIsValue, actualValue.Arg1LengthIsValue)
+			}
+			if exists && actualValue.Arg2LengthIsValue != expectedValue.Arg2LengthIsValue {
+				t.Errorf("param: commands[%s].Arg1LengthIsValue, expected: %v, actual: %v", expectedKey, expectedValue.Arg1LengthIsValue, actualValue.Arg1LengthIsValue)
+			}
 		}
 	}
 }
@@ -43,8 +50,9 @@ func assertState(t *testing.T, testObject *Parser, expectedState int, expectedCo
 	}
 }
 
-func assertArg1(t *testing.T, testObject *Parser, expectedArg1LengthLength int, expectedArg1LengthBuilder string, expectedArg1Length int, expectedArg1 string) {
+func assertArg1(t *testing.T, testObject *Parser, expectedArg1LengthIsValue bool, expectedArg1LengthLength int, expectedArg1LengthBuilder string, expectedArg1Length int, expectedArg1 string) {
 	assert := assertions.NewAssert(t)
+	assert.Boolean("arg1LengthIsValue", expectedArg1LengthIsValue, testObject.arg1LengthIsValue)
 	if testObject.arg1LengthLength != expectedArg1LengthLength {
 		t.Errorf("param: %s, expected: %d, actual: %d", "arg1LengthLength", expectedArg1LengthLength, testObject.arg1LengthLength)
 	}
@@ -57,8 +65,9 @@ func assertArg1(t *testing.T, testObject *Parser, expectedArg1LengthLength int, 
 	assert.String("arg1", expectedArg1, testObject.arg1)
 }
 
-func assertArg2(t *testing.T, testObject *Parser, expectedArg2LengthLength int, expectedArg2LengthBuilder string, expectedArg2Length int, expectedArg2 string) {
+func assertArg2(t *testing.T, testObject *Parser, expectedArg2LengthIsValue bool, expectedArg2LengthLength int, expectedArg2LengthBuilder string, expectedArg2Length int, expectedArg2 string) {
 	assert := assertions.NewAssert(t)
+	assert.Boolean("arg2LengthIsValue", expectedArg2LengthIsValue, testObject.arg2LengthIsValue)
 	if testObject.arg2LengthLength != expectedArg2LengthLength {
 		t.Errorf("param: %s, expected: %d, actual: %d", "arg2LengthLength", expectedArg2LengthLength, testObject.arg2LengthLength)
 	}
@@ -73,8 +82,8 @@ func assertArg2(t *testing.T, testObject *Parser, expectedArg2LengthLength int, 
 
 func assertResetState(t *testing.T, testObject *Parser, testGrammar map[string]ParserGrammar) {
 	assertState(t, testObject, stateReset, "", 0)
-	assertArg1(t, testObject, 0, "", 0, "")
-	assertArg2(t, testObject, 0, "", 0, "")
+	assertArg1(t, testObject, false, 0, "", 0, "")
+	assertArg2(t, testObject, false, 0, "", 0, "")
 	assertGrammar(t, testObject, testGrammar)
 }
 
@@ -101,10 +110,12 @@ func TestResetClearsState(t *testing.T) {
 	testObject.state = 123
 	testObject.command = "abc"
 	testObject.argsExpected = 234
+	testObject.arg1LengthIsValue = true
 	testObject.arg1LengthLength = 456
 	testObject.arg1LengthBuilder = "def"
 	testObject.arg1Length = 567
 	testObject.arg1 = "ghi"
+	testObject.arg2LengthIsValue = true
 	testObject.arg2LengthLength = 678
 	testObject.arg2LengthBuilder = "jkl"
 	testObject.arg2Length = 789

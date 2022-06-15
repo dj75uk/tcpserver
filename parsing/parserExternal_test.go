@@ -1,7 +1,6 @@
 package parsing_test
 
 import (
-	"errors"
 	"kvsapp/assertions"
 	"kvsapp/parsing"
 	"sync"
@@ -23,6 +22,12 @@ func createTestObject() *parsing.Parser {
 		"cm0": {ExpectedArguments: 0},
 		"cm1": {ExpectedArguments: 1},
 		"cm2": {ExpectedArguments: 2},
+		"a1v": {ExpectedArguments: 1, Arg1LengthIsValue: true},
+		"hed": {ExpectedArguments: 2, Arg2LengthIsValue: true},
+		"put": {ExpectedArguments: 2},
+		"get": {ExpectedArguments: 1},
+		"del": {ExpectedArguments: 1},
+		"bye": {ExpectedArguments: 0},
 	})
 	return result
 }
@@ -191,6 +196,60 @@ func getSampleData() map[string]sampleData {
 			expectedFound:        false,
 			expectedProcessError: parsing.ErrParserUnknownCommand,
 		},
+		"arg1 length is value": {
+			enabled:              true,
+			bytes:                []byte("a1v215"),
+			expectedCommand:      "a1v",
+			expectedArg1:         "15",
+			expectedArg2:         "",
+			expectedFound:        true,
+			expectedProcessError: nil,
+		},
+		"hed command": {
+			enabled:              true,
+			bytes:                []byte("hed13key232"),
+			expectedCommand:      "hed",
+			expectedArg1:         "key",
+			expectedArg2:         "32",
+			expectedFound:        true,
+			expectedProcessError: nil,
+		},
+		"put command": {
+			enabled:              true,
+			bytes:                []byte("put13key15value"),
+			expectedCommand:      "put",
+			expectedArg1:         "key",
+			expectedArg2:         "value",
+			expectedFound:        true,
+			expectedProcessError: nil,
+		},
+		"get command": {
+			enabled:              true,
+			bytes:                []byte("get13key"),
+			expectedCommand:      "get",
+			expectedArg1:         "key",
+			expectedArg2:         "",
+			expectedFound:        true,
+			expectedProcessError: nil,
+		},
+		"del command": {
+			enabled:              true,
+			bytes:                []byte("del13key"),
+			expectedCommand:      "del",
+			expectedArg1:         "key",
+			expectedArg2:         "",
+			expectedFound:        true,
+			expectedProcessError: nil,
+		},
+		"bye command": {
+			enabled:              true,
+			bytes:                []byte("bye"),
+			expectedCommand:      "bye",
+			expectedArg1:         "",
+			expectedArg2:         "",
+			expectedFound:        true,
+			expectedProcessError: nil,
+		},
 	}
 
 	return result
@@ -198,6 +257,7 @@ func getSampleData() map[string]sampleData {
 
 func TestSampleData(t *testing.T) {
 	t.Parallel()
+	assert := assertions.NewAssert(t)
 	wait := sync.WaitGroup{}
 	for testName, testData := range getSampleData() {
 		if !testData.enabled {
@@ -224,39 +284,20 @@ func TestSampleData(t *testing.T) {
 				}
 			}
 
-			if processFound != testData.expectedFound {
-				t.Errorf("test: %s, param: processFound, expected: %v, actual: %v", testName, testData.expectedFound, processFound)
-			}
+			assert.TestBoolean(testName, "processFound", testData.expectedFound, processFound)
+			assert.TestError(testName, testData.expectedProcessError, processError)
 
-			if (processError != nil) && (testData.expectedProcessError != nil) {
-				if !errors.Is(processError, testData.expectedProcessError) {
-					t.Errorf("test1: %s, param: processError, expected: %T (%v), actual: %T (%v)", testName, testData.expectedProcessError, testData.expectedProcessError, processError, processError)
-				}
-			}
-			if (processError == nil) && (testData.expectedProcessError != nil) {
-				t.Errorf("test2: %s, param: processError, expected: %T (%v), actual: nil", testName, testData.expectedProcessError, testData.expectedProcessError)
-			}
-			if (processError != nil) && (testData.expectedProcessError == nil) {
-				t.Errorf("test2: %s, param: processError, expected: nil, actual: %T (%v)", testName, processError, processError)
-			}
 			if !processFound || processError != nil {
 				return
 			}
 
 			getMessageCommand, getMessageArg1, getMessageArg2, getMessageError := testObject.GetMessage()
 
-			if getMessageCommand != testData.expectedCommand {
-				t.Errorf("test: %s, param: command, expected: %s, actual: %s", testName, testData.expectedCommand, getMessageCommand)
-			}
-			if getMessageArg1 != testData.expectedArg1 {
-				t.Errorf("test: %s, param: arg1, expected: %s, actual: %s", testName, testData.expectedArg1, getMessageArg1)
-			}
-			if getMessageArg2 != testData.expectedArg2 {
-				t.Errorf("test: %s, param: arg2, expected: %s, actual: %s", testName, testData.expectedArg2, getMessageArg2)
-			}
-			if getMessageError != nil {
-				t.Errorf("test: %s, param: error, expected: %s, actual: %s", testName, testData.expectedCommand, getMessageCommand)
-			}
+			assert.TestString(testName, "command", testData.expectedCommand, getMessageCommand)
+			assert.TestString(testName, "arg1", testData.expectedArg1, getMessageArg1)
+			assert.TestString(testName, "arg2", testData.expectedArg2, getMessageArg2)
+			assert.TestError(testName, nil, getMessageError)
+
 		}(t, testName, testData)
 	}
 	wait.Wait()
