@@ -2,6 +2,7 @@ package parsing
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -74,7 +75,7 @@ func assertArg2(t *testing.T, testObject *Parser, expectedArg2LengthLength int, 
 }
 
 func assertResetState(t *testing.T, testObject *Parser, testGrammar map[string]uint16) {
-	assertState(t, testObject, 0, "", 0)
+	assertState(t, testObject, stateReset, "", 0)
 	assertArg1(t, testObject, 0, "", 0, "")
 	assertArg2(t, testObject, 0, "", 0, "")
 	assertGrammar(t, testObject, testGrammar)
@@ -102,6 +103,12 @@ func assertTrue(t *testing.T, param string, actual bool) {
 }
 func assertFalse(t *testing.T, param string, actual bool) {
 	assertBoolean(t, param, false, actual)
+}
+
+func assertString(t *testing.T, param string, expected string, actual string) {
+	if expected != actual {
+		t.Errorf("param: %s, expected: %s, actual: %s", param, expected, actual)
+	}
 }
 
 func TestNewParserInitialisesStructure(t *testing.T) {
@@ -139,7 +146,7 @@ func TestResetClearsState(t *testing.T) {
 	assertResetState(t, testObject, testGrammar)
 }
 
-func TestProcess0001(t *testing.T) {
+func TestProcessUnknownCommand(t *testing.T) {
 	t.Parallel()
 	testGrammar := map[string]uint16{
 		"ddd": 0,
@@ -147,7 +154,6 @@ func TestProcess0001(t *testing.T) {
 		"fff": 2,
 	}
 	testObject, _ := NewParser(testGrammar)
-	assertResetState(t, testObject, testGrammar)
 
 	found := false
 	err := error(nil)
@@ -166,4 +172,110 @@ func TestProcess0001(t *testing.T) {
 	assertFalse(t, "found", found)
 	assertError(t, ErrParserUnknownCommand, err)
 	assertState(t, testObject, 0, "", 0)
+}
+
+func TestProcessKnownZeroArgumentCommand(t *testing.T) {
+	const ExpectedCommand string = "abc"
+	t.Parallel()
+	testGrammar := map[string]uint16{ExpectedCommand: 0}
+	testObject, _ := NewParser(testGrammar)
+
+	found := false
+	err := error(nil)
+
+	found, err = testObject.Process(ExpectedCommand[0:1])
+	assertFalse(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateBuildingCommand, ExpectedCommand[0:1], 0)
+
+	found, err = testObject.Process(ExpectedCommand[1:2])
+	assertFalse(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateBuildingCommand, ExpectedCommand[0:2], 0)
+
+	found, err = testObject.Process(ExpectedCommand[2:3])
+	assertTrue(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateWaitingForMessageDequeue, ExpectedCommand, 0)
+}
+
+func TestProcessKnownOneArgumentCommand(t *testing.T) {
+
+	const ExpectedCommand string = "bcd"
+	const ExpectedArg1 string = "arg1"
+
+	t.Parallel()
+	testGrammar := map[string]uint16{ExpectedCommand: 1}
+	testObject, _ := NewParser(testGrammar)
+
+	found := false
+	err := error(nil)
+
+	found, err = testObject.Process(ExpectedCommand[0:1])
+	assertFalse(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateBuildingCommand, ExpectedCommand[0:1], 0)
+
+	found, err = testObject.Process(ExpectedCommand[1:2])
+	assertFalse(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateBuildingCommand, ExpectedCommand[0:2], 0)
+
+	found, err = testObject.Process(ExpectedCommand[2:3])
+	assertFalse(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateBuildingArg1LengthLength, ExpectedCommand, 1)
+
+	found, err = testObject.Process("1")
+	assertFalse(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateBuildingArg1Length, ExpectedCommand, 1)
+
+	found, err = testObject.Process(fmt.Sprintf("%d", len(ExpectedArg1)))
+	assertFalse(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateBuildingArg1, ExpectedCommand, 1)
+
+	for _, r := range ExpectedArg1 {
+		found, err = testObject.Process(string(r))
+	}
+	assertTrue(t, "found", found)
+	assertError(t, nil, err)
+	assertState(t, testObject, stateWaitingForMessageDequeue, ExpectedCommand, 1)
+}
+
+func TestGetMessageResetsState(t *testing.T) {
+	const ExpectedCommand string = "qwe"
+	const ExpectedArg1 string = "arg1value"
+	const expectedArg2 string = "arg2value"
+	t.Parallel()
+
+	testGrammar := map[string]uint16{"ghj": 0}
+	testObject, _ := NewParser(testGrammar)
+	testObject.state = stateWaitingForMessageDequeue
+	testObject.command = ExpectedCommand
+	testObject.arg1 = ExpectedArg1
+	testObject.arg2 = expectedArg2
+	_, _, _, _ = testObject.GetMessage()
+
+	assertResetState(t, testObject, testGrammar)
+}
+
+func TestGetMessageReturnsInternalState(t *testing.T) {
+	const ExpectedCommand string = "qwe"
+	const ExpectedArg1 string = "arg1value"
+	const expectedArg2 string = "arg2value"
+	t.Parallel()
+
+	testObject, _ := NewParser(map[string]uint16{})
+	testObject.state = stateWaitingForMessageDequeue
+	testObject.command = ExpectedCommand
+	testObject.arg1 = ExpectedArg1
+	testObject.arg2 = expectedArg2
+	command, arg1, arg2, err := testObject.GetMessage()
+
+	assertString(t, "command", ExpectedCommand, command)
+	assertString(t, "arg1", ExpectedArg1, arg1)
+	assertString(t, "arg2", expectedArg2, arg2)
+	assertError(t, nil, err)
 }

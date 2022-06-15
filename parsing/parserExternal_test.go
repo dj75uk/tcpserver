@@ -274,6 +274,28 @@ func compareSlices(a []byte, b []byte) bool {
 	return true
 }
 
+func TestGetMessageReturnsErrorWhenNoMessageReady(t *testing.T) {
+	t.Parallel()
+	testObject, _ := parsing.NewParser(map[string]uint16{"cmd": 0})
+	testObject.Process("a")
+	getMessageCommand, getMessageArg1, getMessageArg2, getMessageError := testObject.GetMessage()
+	if getMessageCommand != "" {
+		t.Errorf("param: command, expected: %s, actual: %s", "", getMessageCommand)
+	}
+	if getMessageArg1 != "" {
+		t.Errorf("param: arg1, expected: %s, actual: %s", "", getMessageArg1)
+	}
+	if getMessageArg2 != "" {
+		t.Errorf("param: arg2, expected: %s, actual: %s", "", getMessageArg2)
+	}
+	if getMessageError == nil {
+		t.Errorf("param: err, expected: %s, actual: %s", "error", "nil")
+	}
+	if getMessageError != nil && !errors.Is(getMessageError, parsing.ErrParserNoMessage) {
+		t.Errorf("param: err, expected: %T, actual: %T (%s)", parsing.ErrParserNoMessage, getMessageError, getMessageError.Error())
+	}
+}
+
 func TestNewParserReturnsErrorOnNilArgument(t *testing.T) {
 	t.Parallel()
 	testObject, err := parsing.NewParser(nil)
