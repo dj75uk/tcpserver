@@ -21,6 +21,10 @@ var ErrParserUnknownCommand = errors.New("unknown command")
 var ErrParserBadFormat = errors.New("bad format")
 var ErrParserNoMessage = errors.New("no message")
 
+type ParserGrammar struct {
+	ExpectedArguments uint16
+}
+
 type Parser struct {
 	state             int
 	command           string
@@ -33,10 +37,10 @@ type Parser struct {
 	arg2LengthBuilder string
 	arg2Length        int
 	arg2              string
-	commands          map[string]uint16
+	commands          map[string]ParserGrammar
 }
 
-func NewParser(grammar map[string]uint16) (*Parser, error) {
+func NewParser(grammar map[string]ParserGrammar) (*Parser, error) {
 	if grammar == nil {
 		return nil, ErrParserInvalidArgument
 	}
@@ -92,7 +96,8 @@ func (p *Parser) Process(datum string) (found bool, e error) {
 		p.command += datum
 		if len(p.command) == 3 {
 			// validate command...
-			if argsExpected, exists := p.commands[p.command]; exists {
+			if commandGrammar, exists := p.commands[p.command]; exists {
+				argsExpected := commandGrammar.ExpectedArguments
 				if argsExpected == 0 {
 					p.state = stateWaitingForMessageDequeue
 					return true, nil // we have a valid zero-arg message

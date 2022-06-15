@@ -19,10 +19,10 @@ type sampleData struct {
 }
 
 func createTestObject() *parsing.Parser {
-	result, _ := parsing.NewParser(map[string]uint16{
-		"cm0": 0,
-		"cm1": 1,
-		"cm2": 2,
+	result, _ := parsing.NewParser(map[string]parsing.ParserGrammar{
+		"cm0": {ExpectedArguments: 0},
+		"cm1": {ExpectedArguments: 1},
+		"cm2": {ExpectedArguments: 2},
 	})
 	return result
 }
@@ -277,7 +277,7 @@ func compareSlices(a []byte, b []byte) bool {
 func TestGetMessageReturnsErrorWhenNoMessageReady(t *testing.T) {
 	t.Parallel()
 	assert := assertions.NewAssert(t)
-	testObject, _ := parsing.NewParser(map[string]uint16{"cmd": 0})
+	testObject, _ := parsing.NewParser(map[string]parsing.ParserGrammar{"cmd": {ExpectedArguments: 0}})
 	testObject.Process("a")
 	getMessageCommand, getMessageArg1, getMessageArg2, getMessageError := testObject.GetMessage()
 	assert.String("command", "", getMessageCommand)
@@ -299,7 +299,7 @@ func TestNewParserReturnsErrorOnNilArgument(t *testing.T) {
 func TestNewParserReturnsObject(t *testing.T) {
 	t.Parallel()
 	assert := assertions.NewAssert(t)
-	testObject, err := parsing.NewParser(map[string]uint16{"cmd": 0})
+	testObject, err := parsing.NewParser(map[string]parsing.ParserGrammar{"cmd": {ExpectedArguments: 0}})
 	if testObject == nil {
 		t.Errorf("param: %s, expected: %s, actual: %s", "testObject", "obj", "nil")
 	}

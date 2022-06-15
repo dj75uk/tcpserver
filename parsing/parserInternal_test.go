@@ -7,15 +7,15 @@ import (
 )
 
 func createTestObject() *Parser {
-	result, _ := NewParser(map[string]uint16{
-		"abc": 0,
-		"def": 1,
-		"ghi": 2,
+	result, _ := NewParser(map[string]ParserGrammar{
+		"abc": {ExpectedArguments: 0},
+		"def": {ExpectedArguments: 1},
+		"ghi": {ExpectedArguments: 2},
 	})
 	return result
 }
 
-func assertGrammar(t *testing.T, testObject *Parser, testGrammar map[string]uint16) {
+func assertGrammar(t *testing.T, testObject *Parser, testGrammar map[string]ParserGrammar) {
 	if len(testObject.commands) != len(testGrammar) {
 		t.Errorf("param: %s, expected: %d, actual: %d", "len(commands)", len(testGrammar), len(testObject.commands))
 	}
@@ -25,8 +25,8 @@ func assertGrammar(t *testing.T, testObject *Parser, testGrammar map[string]uint
 			if !exists {
 				t.Errorf("param: commands[%s], expected: %s, actual: %s", expectedKey, expectedKey, "<key not in map>")
 			}
-			if exists && actualValue != expectedValue {
-				t.Errorf("param: commands[%s], expected: %d, actual: %d", expectedKey, expectedValue, actualValue)
+			if exists && actualValue.ExpectedArguments != expectedValue.ExpectedArguments {
+				t.Errorf("param: commands[%s].ExpectedArguments, expected: %d, actual: %d", expectedKey, expectedValue.ExpectedArguments, actualValue.ExpectedArguments)
 			}
 		}
 	}
@@ -71,7 +71,7 @@ func assertArg2(t *testing.T, testObject *Parser, expectedArg2LengthLength int, 
 	assert.String("arg2", expectedArg2, testObject.arg2)
 }
 
-func assertResetState(t *testing.T, testObject *Parser, testGrammar map[string]uint16) {
+func assertResetState(t *testing.T, testObject *Parser, testGrammar map[string]ParserGrammar) {
 	assertState(t, testObject, stateReset, "", 0)
 	assertArg1(t, testObject, 0, "", 0, "")
 	assertArg2(t, testObject, 0, "", 0, "")
@@ -80,10 +80,10 @@ func assertResetState(t *testing.T, testObject *Parser, testGrammar map[string]u
 
 func TestNewParserInitialisesStructure(t *testing.T) {
 	t.Parallel()
-	testGrammar := map[string]uint16{
-		"aaa": 0,
-		"bbb": 1,
-		"ccc": 2,
+	testGrammar := map[string]ParserGrammar{
+		"ddd": {ExpectedArguments: 0},
+		"eee": {ExpectedArguments: 1},
+		"fff": {ExpectedArguments: 2},
 	}
 
 	testObject, _ := NewParser(testGrammar)
@@ -92,10 +92,10 @@ func TestNewParserInitialisesStructure(t *testing.T) {
 
 func TestResetClearsState(t *testing.T) {
 	t.Parallel()
-	testGrammar := map[string]uint16{
-		"ddd": 0,
-		"eee": 1,
-		"fff": 2,
+	testGrammar := map[string]ParserGrammar{
+		"ddd": {ExpectedArguments: 0},
+		"eee": {ExpectedArguments: 1},
+		"fff": {ExpectedArguments: 2},
 	}
 	testObject, _ := NewParser(testGrammar)
 	testObject.state = 123
@@ -116,10 +116,10 @@ func TestResetClearsState(t *testing.T) {
 func TestProcessUnknownCommand(t *testing.T) {
 	t.Parallel()
 	assert := assertions.NewAssert(t)
-	testGrammar := map[string]uint16{
-		"ddd": 0,
-		"eee": 1,
-		"fff": 2,
+	testGrammar := map[string]ParserGrammar{
+		"ddd": {ExpectedArguments: 0},
+		"eee": {ExpectedArguments: 1},
+		"fff": {ExpectedArguments: 2},
 	}
 	testObject, _ := NewParser(testGrammar)
 
@@ -146,7 +146,7 @@ func TestProcessKnownZeroArgumentCommand(t *testing.T) {
 	assert := assertions.NewAssert(t)
 	const ExpectedCommand string = "abc"
 	t.Parallel()
-	testGrammar := map[string]uint16{ExpectedCommand: 0}
+	testGrammar := map[string]ParserGrammar{ExpectedCommand: {ExpectedArguments: 0}}
 	testObject, _ := NewParser(testGrammar)
 
 	found := false
@@ -175,7 +175,7 @@ func TestProcessKnownOneArgumentCommand(t *testing.T) {
 
 	assert := assertions.NewAssert(t)
 	t.Parallel()
-	testGrammar := map[string]uint16{ExpectedCommand: 1}
+	testGrammar := map[string]ParserGrammar{ExpectedCommand: {ExpectedArguments: 1}}
 	testObject, _ := NewParser(testGrammar)
 
 	found := false
@@ -220,7 +220,7 @@ func TestGetMessageResetsState(t *testing.T) {
 	const expectedArg2 string = "arg2value"
 	t.Parallel()
 
-	testGrammar := map[string]uint16{"ghj": 0}
+	testGrammar := map[string]ParserGrammar{"ghj": {ExpectedArguments: 0}}
 	testObject, _ := NewParser(testGrammar)
 	testObject.state = stateWaitingForMessageDequeue
 	testObject.command = ExpectedCommand
@@ -238,7 +238,7 @@ func TestGetMessageReturnsInternalState(t *testing.T) {
 	t.Parallel()
 	assert := assertions.NewAssert(t)
 
-	testObject, _ := NewParser(map[string]uint16{})
+	testObject, _ := NewParser(map[string]ParserGrammar{})
 	testObject.state = stateWaitingForMessageDequeue
 	testObject.command = ExpectedCommand
 	testObject.arg1 = ExpectedArg1

@@ -63,7 +63,7 @@ func (store *KvStore) Get(key string) (string, error) {
 	}
 	store.query(request)
 	response := <-request.Results
-	close(request.Results)
+	defer close(request.Results)
 	return response.Value, response.Error
 }
 
@@ -76,7 +76,7 @@ func (store *KvStore) Upsert(key string, value string) (string, error) {
 	}
 	store.query(request)
 	response := <-request.Results
-	close(request.Results)
+	defer close(request.Results)
 	return response.Value, response.Error
 }
 
@@ -89,7 +89,7 @@ func (store *KvStore) Delete(key string) (string, error) {
 	}
 	store.query(request)
 	response := <-request.Results
-	close(request.Results)
+	defer close(request.Results)
 	return response.Value, response.Error
 }
 
