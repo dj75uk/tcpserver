@@ -3,6 +3,7 @@ package kvserver
 import (
 	"errors"
 	"fmt"
+	"io"
 	"kvsapp/kvstore"
 	"kvsapp/parsing"
 	"net"
@@ -54,7 +55,6 @@ func (kvs *KvServer) Close() {
 }
 
 func (kvs *KvServer) handleAcceptance(listener net.Listener) {
-
 	for {
 		connection, err := listener.Accept()
 		if err != nil {
@@ -69,7 +69,7 @@ func (kvs *KvServer) handleAcceptance(listener net.Listener) {
 	}
 }
 
-func (kvs *KvServer) handleConnection(connection net.Conn) {
+func (kvs *KvServer) handleConnection(connection io.ReadWriteCloser) {
 	defer func() { _ = connection.Close() }()
 
 	parser, _ := parsing.NewParser(kvs.grammar)
@@ -90,7 +90,7 @@ func (kvs *KvServer) handleConnection(connection net.Conn) {
 	}
 }
 
-func (kvs *KvServer) handleReceivedBytes(connection net.Conn, parser *parsing.Parser, values []byte) (carryOn bool, e error) {
+func (kvs *KvServer) handleReceivedBytes(connection io.ReadWriter, parser *parsing.Parser, values []byte) (carryOn bool, e error) {
 	for _, value := range values {
 		cont, err := kvs.handleReceivedByte(connection, parser, value)
 		if !cont || err != nil {
@@ -100,7 +100,7 @@ func (kvs *KvServer) handleReceivedBytes(connection net.Conn, parser *parsing.Pa
 	return true, nil
 }
 
-func (kvs *KvServer) handleReceivedByte(connection net.Conn, parser *parsing.Parser, value byte) (carryOn bool, e error) {
+func (kvs *KvServer) handleReceivedByte(connection io.ReadWriter, parser *parsing.Parser, value byte) (carryOn bool, e error) {
 	found, err := parser.Process(string(value))
 	if err != nil {
 		_, err := writeErr(connection)
@@ -120,11 +120,11 @@ func (kvs *KvServer) handleReceivedByte(connection net.Conn, parser *parsing.Par
 	return true, nil
 }
 
-func writeErr(connection net.Conn) (n int, err error) {
+func writeErr(connection io.ReadWriter) (n int, err error) {
 	return connection.Write([]byte("err"))
 }
 
-func (kvs *KvServer) handleMessage(connection net.Conn, message *commandMessage) (carryOn bool) {
+func (kvs *KvServer) handleMessage(connection io.ReadWriter, message *commandMessage) (carryOn bool) {
 	if message == nil {
 		return false
 	}

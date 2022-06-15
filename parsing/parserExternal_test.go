@@ -2,6 +2,7 @@ package parsing_test
 
 import (
 	"errors"
+	"kvsapp/assertions"
 	"kvsapp/parsing"
 	"sync"
 	"testing"
@@ -207,7 +208,6 @@ func TestSampleData(t *testing.T) {
 
 		go func(t *testing.T, testName string, testData sampleData) {
 			defer wait.Done()
-
 			testObject := createTestObject()
 
 			processFound := false
@@ -276,49 +276,34 @@ func compareSlices(a []byte, b []byte) bool {
 
 func TestGetMessageReturnsErrorWhenNoMessageReady(t *testing.T) {
 	t.Parallel()
+	assert := assertions.NewAssert(t)
 	testObject, _ := parsing.NewParser(map[string]uint16{"cmd": 0})
 	testObject.Process("a")
 	getMessageCommand, getMessageArg1, getMessageArg2, getMessageError := testObject.GetMessage()
-	if getMessageCommand != "" {
-		t.Errorf("param: command, expected: %s, actual: %s", "", getMessageCommand)
-	}
-	if getMessageArg1 != "" {
-		t.Errorf("param: arg1, expected: %s, actual: %s", "", getMessageArg1)
-	}
-	if getMessageArg2 != "" {
-		t.Errorf("param: arg2, expected: %s, actual: %s", "", getMessageArg2)
-	}
-	if getMessageError == nil {
-		t.Errorf("param: err, expected: %s, actual: %s", "error", "nil")
-	}
-	if getMessageError != nil && !errors.Is(getMessageError, parsing.ErrParserNoMessage) {
-		t.Errorf("param: err, expected: %T, actual: %T (%s)", parsing.ErrParserNoMessage, getMessageError, getMessageError.Error())
-	}
+	assert.String("command", "", getMessageCommand)
+	assert.String("arg1", "", getMessageArg1)
+	assert.String("arg2", "", getMessageArg2)
+	assert.Error(parsing.ErrParserNoMessage, getMessageError)
 }
 
 func TestNewParserReturnsErrorOnNilArgument(t *testing.T) {
 	t.Parallel()
+	assert := assertions.NewAssert(t)
 	testObject, err := parsing.NewParser(nil)
 	if testObject != nil {
 		t.Errorf("param: %s, expected: %s, actual: %T", "testObject", "nil", testObject)
 	}
-	if err == nil {
-		t.Errorf("param: %s, expected: %T, actual: %s", "err", parsing.ErrParserInvalidArgument, "nil")
-	}
-	if err != nil && !errors.Is(parsing.ErrParserInvalidArgument, err) {
-		t.Errorf("param: %s, expected: %T, actual: %T", "err", parsing.ErrParserInvalidArgument, err)
-	}
+	assert.Error(parsing.ErrParserInvalidArgument, err)
 }
 
 func TestNewParserReturnsObject(t *testing.T) {
 	t.Parallel()
+	assert := assertions.NewAssert(t)
 	testObject, err := parsing.NewParser(map[string]uint16{"cmd": 0})
 	if testObject == nil {
 		t.Errorf("param: %s, expected: %s, actual: %s", "testObject", "obj", "nil")
 	}
-	if err != nil {
-		t.Errorf("param: %s, expected: %s, actual: %T", "err", "nil", err)
-	}
+	assert.Error(nil, err)
 }
 
 func TestCreateDataOnEmptyCommandErrorIsReturned(t *testing.T) {
