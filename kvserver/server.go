@@ -38,7 +38,7 @@ func NewKvServer(port int, store *kvstore.KvStore) (*KvServer, error) {
 			"get": {ExpectedArguments: 1},
 			"del": {ExpectedArguments: 1},
 			"put": {ExpectedArguments: 2},
-			"hed": {ExpectedArguments: 2, Arg1LengthIsValue: false},
+			"hed": {ExpectedArguments: 2, Arg2LengthIsValue: true},
 		},
 		shutdown: make(chan int),
 	}, nil
@@ -169,8 +169,11 @@ func (kvs *KvServer) handleMessage(connection io.Writer, message *commandMessage
 		} else {
 			desiredLength, err := strconv.Atoi(message.Value)
 			if err == nil && desiredLength >= 0 {
+				if desiredLength > 0 {
+					result = result[0:desiredLength]
+				}
 				if bytesToWrite, err := parsing.CreateData("val", result, ""); err == nil {
-					responseToWrite = string(bytesToWrite[0:desiredLength])
+					responseToWrite = string(bytesToWrite)
 				}
 			}
 		}
