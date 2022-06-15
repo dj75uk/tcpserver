@@ -13,9 +13,10 @@ import (
 const KvServerReadBufferSize int = 256
 
 type KvServer struct {
-	port    int
-	store   kvstore.KvStore
-	grammar map[string]parsing.ParserGrammar
+	port     int
+	store    kvstore.KvStore
+	grammar  map[string]parsing.ParserGrammar
+	shutdown chan int
 }
 
 type commandMessage struct {
@@ -32,12 +33,14 @@ func NewKvServer(port int, store *kvstore.KvStore) (*KvServer, error) {
 		port:  port,
 		store: *store,
 		grammar: map[string]parsing.ParserGrammar{
+			"die": {ExpectedArguments: 0},
 			"bye": {ExpectedArguments: 0},
 			"get": {ExpectedArguments: 1},
 			"del": {ExpectedArguments: 1},
 			"put": {ExpectedArguments: 2},
-			"hed": {ExpectedArguments: 2},
+			"hed": {ExpectedArguments: 2, Arg1LengthIsValue: false},
 		},
+		shutdown: make(chan int),
 	}, nil
 }
 
@@ -54,6 +57,14 @@ func (kvs *KvServer) Open() error {
 
 func (kvs *KvServer) Close() {
 
+}
+
+func (kvs *KvServer) WaitForShutdown() {
+	<-kvs.shutdown
+}
+
+func (kvs *KvServer) Shutdown() {
+	kvs.shutdown <- 1
 }
 
 func (kvs *KvServer) handleAcceptance(listener net.Listener) {
@@ -139,8 +150,10 @@ func (kvs *KvServer) handleMessage(connection io.Writer, message *commandMessage
 	responseToWrite := "err"
 
 	switch message.Command {
+
 	case "bye":
 		return false
+
 	case "get":
 		if result, err := kvs.store.Get(message.Key); err != nil {
 			responseToWrite = "nil"
@@ -149,6 +162,7 @@ func (kvs *KvServer) handleMessage(connection io.Writer, message *commandMessage
 				responseToWrite = string(bytesToWrite)
 			}
 		}
+
 	case "hed":
 		if result, err := kvs.store.Get(message.Key); err != nil {
 			responseToWrite = "nil"
@@ -160,16 +174,25 @@ func (kvs *KvServer) handleMessage(connection io.Writer, message *commandMessage
 				}
 			}
 		}
+
 	case "put":
 		if _, err := kvs.store.Upsert(message.Key, message.Value); err == nil {
 			responseToWrite = "ack"
 		}
+
 	case "del":
 		if _, err := kvs.store.Delete(message.Key); err == nil {
 			responseToWrite = "ack"
 		}
+
+	case "die":
+		responseToWrite = "ack"
+		kvs.Shutdown()
+		return false
+
 	default:
 		fmt.Printf("server: sending err (msg.Command == %s)\n", message.Command)
+
 	}
 	if len(responseToWrite) > 0 {
 		_, err := connection.Write([]byte(responseToWrite))

@@ -34,6 +34,6 @@ func main() {
 	}
 	defer server.Close()
 
-	// wait for ctrl-c without killing the cpu...
-	<-make(chan int)
+	// wait for ctrl-c or server shutdown...
+	server.WaitForShutdown()
 }
