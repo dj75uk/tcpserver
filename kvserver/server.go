@@ -13,10 +13,13 @@ import (
 const KvServerReadBufferSize int = 256
 
 type KvServer struct {
-	port     int
-	store    kvstore.KvStore
-	grammar  map[string]parsing.ParserGrammar
-	shutdown chan int
+	tcpport             int
+	udpport             int
+	udpBroadcastAddress string
+	udpListeningAddress string
+	store               kvstore.KvStore
+	grammar             map[string]parsing.ParserGrammar
+	shutdown            chan int
 }
 
 type commandMessage struct {
@@ -25,33 +28,31 @@ type commandMessage struct {
 	Value   string
 }
 
-func NewKvServer(port int, store *kvstore.KvStore) (*KvServer, error) {
+func NewKvServer(tcpport int, udpport int, store *kvstore.KvStore) (*KvServer, error) {
 	if store == nil {
 		return nil, errors.New("parameter 'store' must not be nil")
 	}
 	return &KvServer{
-		port:  port,
-		store: *store,
-		grammar: map[string]parsing.ParserGrammar{
-			"die": {ExpectedArguments: 0},
-			"bye": {ExpectedArguments: 0},
-			"get": {ExpectedArguments: 1},
-			"del": {ExpectedArguments: 1},
-			"put": {ExpectedArguments: 2},
-			"hed": {ExpectedArguments: 2, Arg2LengthIsValue: true},
-		},
+		tcpport:  tcpport,
+		udpport:  udpport,
+		store:    *store,
+		grammar:  getStandardGrammar(),
 		shutdown: make(chan int),
 	}, nil
 }
 
 func (kvs *KvServer) Open() error {
 
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", kvs.port))
+	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", kvs.tcpport))
 	if err != nil {
 		return err
 	}
-	fmt.Printf("server: listening on port %d\n", kvs.port)
-	go kvs.handleAcceptance(listener)
+	fmt.Printf("server-tcp: listening on port %d\n", kvs.tcpport)
+	go kvs.handleTcpAcceptance(listener)
+
+	go kvs.handleUdpListener(getServerHostKey())
+	go kvs.handleUdpBroadcast(getServerHostKey())
+
 	return nil
 }
 
@@ -67,22 +68,22 @@ func (kvs *KvServer) Shutdown() {
 	kvs.shutdown <- 1
 }
 
-func (kvs *KvServer) handleAcceptance(listener net.Listener) {
+func (kvs *KvServer) handleTcpAcceptance(listener net.Listener) {
 	for {
 		connection, err := listener.Accept()
 		if err != nil {
-			fmt.Printf("server: error accepting connection: %s\n", err.Error())
+			fmt.Printf("server-tcp: error accepting connection: %s\n", err.Error())
 			continue
 		}
 		if connection == nil {
-			fmt.Printf("server: connection was nil\n")
+			fmt.Printf("server-tcp: connection was nil\n")
 			continue
 		}
-		go kvs.handleConnection(connection)
+		go kvs.handleTcpConnection(connection)
 	}
 }
 
-func (kvs *KvServer) handleConnection(connection io.ReadWriteCloser) {
+func (kvs *KvServer) handleTcpConnection(connection io.ReadWriteCloser) {
 	defer func() { _ = connection.Close() }()
 
 	parser, _ := parsing.NewParser(kvs.grammar)
@@ -124,7 +125,7 @@ func (kvs *KvServer) handleReceivedByte(connection io.Writer, parser *parsing.Pa
 	if found {
 		cmd, arg1, arg2, err := parser.GetMessage()
 		if err != nil {
-			panic("something really vile has happened")
+			panic("server-tcp: something really vile has happened")
 		}
 		if !kvs.handleMessage(connection, &commandMessage{Command: cmd, Key: arg1, Value: arg2}) {
 			return false, nil
@@ -193,11 +194,15 @@ func (kvs *KvServer) handleMessage(connection io.Writer, message *commandMessage
 		kvs.Shutdown()
 		return false
 
+	case "hst":
+		// udp broadcast message...
+		responseToWrite = ""
+
 	default:
-		fmt.Printf("server: sending err (msg.Command == %s)\n", message.Command)
+		fmt.Printf("server-tcp: sending err (msg.Command == %s)\n", message.Command)
 
 	}
-	if len(responseToWrite) > 0 {
+	if connection != nil && len(responseToWrite) > 0 {
 		_, err := connection.Write([]byte(responseToWrite))
 		if err != nil {
 			return false

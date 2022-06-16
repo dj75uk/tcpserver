@@ -12,7 +12,7 @@ import (
 func createTestObject() *KvServer {
 	store := kvstore.NewKvStore()
 	store.Open()
-	result, _ := NewKvServer(0, store)
+	result, _ := NewKvServer(0, 0, store)
 	return result
 }
 
