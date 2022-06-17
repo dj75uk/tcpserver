@@ -5,18 +5,13 @@ import (
 	"fmt"
 	"kvsapp/parsing"
 	"net"
-	"os"
 	"syscall"
 	"time"
 )
 
-const udpNetwork string = "udp4"
+const udpNetwork string = "udp"
 
-func getServerHostKey() string {
-	hostname, _ := os.Hostname()
-	return fmt.Sprintf("[%s:%d:%d]", hostname, os.Getppid(), os.Getpid())
-}
-
+// creates a listener configuration suitable for broadcast
 func getUdpListenerConfiguration() net.ListenConfig {
 	return net.ListenConfig{
 		Control: func(network string, address string, c syscall.RawConn) error {
@@ -30,52 +25,100 @@ func getUdpListenerConfiguration() net.ListenConfig {
 }
 
 func (kvs *KvServer) handleUdpListener(hostKey string) {
-	listenerConfiguration := getUdpListenerConfiguration()
 
 	//kvs.udpListeningAddress = "192.168.0.106:9000"
-	kvs.udpListeningAddress = ":9000"
+	kvs.udpListeningAddress = fmt.Sprintf("0.0.0.0:%d", kvs.udpport)
+	//kvs.udpListeningAddress = ":9000"
 
-	udpConnection, err := listenerConfiguration.ListenPacket(context.Background(), "udp", kvs.udpListeningAddress)
+	listenerConfiguration := getUdpListenerConfiguration()
+	udpConnection, err := listenerConfiguration.ListenPacket(context.Background(), udpNetwork, kvs.udpListeningAddress)
 	if err != nil {
-		fmt.Printf("server-udp: unable to start listening, err: %s\n", err.Error())
+		fmt.Printf("cluster: unable to start udp listening, err: %s\n", err.Error())
 		return
 	}
-	fmt.Println("server-udp: listening for broadcasts")
+	fmt.Println("cluster: listening for broadcasts")
 
 	defer udpConnection.Close()
 
 	buffer := make([]byte, 2000)
 	for {
-		if readCount, _, err := udpConnection.ReadFrom(buffer); err == nil && readCount > 0 {
-			if parser, err := parsing.NewParser(getStandardGrammar()); err == nil {
-				for _, v := range buffer {
-					if found, err := parser.Process(string(v)); err == nil && found {
-						if cmd, arg1, arg2, err := parser.GetMessage(); err == nil {
-							if arg1 != hostKey {
-								_ = kvs.handleMessage(nil, &commandMessage{Command: cmd, Key: arg1, Value: arg2})
-							}
-						}
-						break
-					}
-				}
+		// wait for data...
+		//udpConnection.SetReadDeadline(time.Now().Add(1 * time.Second))
+		readCount, _, err := udpConnection.ReadFrom(buffer)
+		if readCount <= 0 || err != nil {
+			continue
+		}
+
+		// create a new parser for the message...
+		msg := string(buffer[0:readCount])
+		fmt.Println("cluster: incoming broadcast message")
+		parser, err := parsing.NewParser(getStandardGrammar())
+		if err != nil {
+			continue
+		}
+
+		// attempt to parse the message...
+		found := false
+		for i := 0; i < readCount; i++ {
+			found, err = parser.Process(string(msg[i]))
+			if found && err == nil {
+				break
+			}
+			if err != nil {
+				found = false
+				break
 			}
 		}
+		if !found {
+			continue
+		}
+
+		// obtain the message object...
+		cmd, arg1, arg2, err := parser.GetMessage()
+		//fmt.Printf("cluster: GetMessage() cmd: %s, arg1: %s, arg2: %s, err: %v\n", cmd, arg1, arg2, err)
+		if err != nil {
+			continue
+		}
+
+		// remove messages from ourselves...
+		if arg1 == hostKey {
+			fmt.Printf("cluster: skipping message because it's from us!\n")
+			continue
+		}
+
+		// process the message via the standard message handler...
+		_ = kvs.handleMessage(nil, &commandMessage{Command: cmd, Key: arg1, Value: arg2})
+
 	}
 }
 
-func (kvs *KvServer) handleUdpBroadcast(hostKey string) {
-	kvs.udpBroadcastAddress = "192.168.0.255:9000"
+func (kvs *KvServer) handleUdpBroadcast(hostKey string, tcpAddress string) {
+	kvs.udpBroadcastAddress = fmt.Sprintf("192.168.0.255:%d", kvs.udpport)
+	//kvs.udpBroadcastAddress = "0.0.0.255:9000"
 
 	broadcastAddress, _ := net.ResolveUDPAddr(udpNetwork, kvs.udpBroadcastAddress)
 	for {
+		// wait an arbitrary time to avoid network spamming...
 		time.Sleep(3 * time.Second)
-		if udpConnection, err := net.DialUDP(udpNetwork, nil, broadcastAddress); err == nil {
-			if txBuffer, err := parsing.CreateData("hst", getServerHostKey(), fmt.Sprintf("tcp=%d", kvs.tcpport)); err == nil {
-				if count, err := udpConnection.Write(txBuffer); err == nil && count > 0 {
-					fmt.Println("server-udp: broadcast")
-				}
-			}
-			udpConnection.Close()
+
+		// create a udp broadcast connection...
+		udpConnection, err := net.DialUDP(udpNetwork, nil, broadcastAddress)
+		if err != nil {
+			continue
 		}
+
+		// create a message to broadcast...
+		txBuffer, err := parsing.CreateData("hst", getServerHostKey(), tcpAddress)
+		if err != nil {
+			continue
+		}
+
+		// broadcast the message...
+		if count, err := udpConnection.Write(txBuffer); err == nil && count > 0 {
+			fmt.Println("cluster: broadcasting identity")
+		}
+
+		// close the broadcast connection...
+		udpConnection.Close()
 	}
 }

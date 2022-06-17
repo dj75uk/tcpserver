@@ -11,5 +11,10 @@ func getStandardGrammar() map[string]parsing.ParserGrammar {
 		"put": {ExpectedArguments: 2},
 		"hed": {ExpectedArguments: 2, Arg2LengthIsValue: true},
 		"hst": {ExpectedArguments: 2},
+		"sdl": {ExpectedArguments: 1},
+		"spt": {ExpectedArguments: 2},
+		"sgt": {ExpectedArguments: 1},
+		"chk": {ExpectedArguments: 1},
+		"nop": {ExpectedArguments: 0},
 	}
 }

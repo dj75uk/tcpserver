@@ -7,6 +7,7 @@ import (
 const kvCommandUpsert string = "UPSERT"
 const kvCommandGet string = "GET"
 const kvCommandDelete string = "DELETE"
+const kvCommandList string = "LIST"
 
 type KvStore struct {
 	items    map[string]string
@@ -23,8 +24,9 @@ type kvStoreRequest struct {
 }
 
 type kvStoreResponse struct {
-	Value string
-	Error error
+	Value  string
+	Values []string
+	Error  error
 }
 
 func NewKvStore() *KvStore {
@@ -93,6 +95,19 @@ func (store *KvStore) Delete(key string) (string, error) {
 	return response.Value, response.Error
 }
 
+func (store *KvStore) ListKeys() []string {
+	request := kvStoreRequest{
+		Command: kvCommandList,
+		Key:     "",
+		Value:   "",
+		Results: make(chan kvStoreResponse),
+	}
+	store.query(request)
+	response := <-request.Results
+	defer close(request.Results)
+	return response.Values
+}
+
 func handleRequests(store *KvStore) {
 	for {
 		request, isOpen := <-store.requests
@@ -100,8 +115,9 @@ func handleRequests(store *KvStore) {
 			return
 		}
 		response := kvStoreResponse{
-			Value: "",
-			Error: nil,
+			Value:  "",
+			Values: nil,
+			Error:  nil,
 		}
 		switch request.Command {
 		case kvCommandUpsert:
@@ -122,6 +138,11 @@ func handleRequests(store *KvStore) {
 			}
 		case kvCommandDelete:
 			delete(store.items, request.Key)
+		case kvCommandList:
+			response.Values = make([]string, 0)
+			for k := range store.items {
+				response.Values = append(response.Values, k)
+			}
 		}
 		request.Results <- response
 	}
